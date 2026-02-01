@@ -1,39 +1,34 @@
+// server.js
 const WebSocket = require("ws");
 
-const wss = new WebSocket.Server({
-  port: process.env.PORT || 8080,
-});
+const PORT = process.env.PORT || 8080;
+const wss = new WebSocket.Server({ port: PORT });
 
-const clients = new Map(); 
-// ws -> { name, role, ip }
+/*
+  clients map:
+  ws -> { name, role }
+*/
+const clients = new Map();
 
-function send(ws, data) {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(data));
-  }
-}
+/* ---------------- BROADCAST ---------------- */
 
 function broadcast(data) {
   const msg = JSON.stringify(data);
-  for (const ws of clients.keys()) {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(msg);
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(msg);
     }
-  }
+  });
 }
 
-function broadcastToAdmins(data) {
-  for (const [ws, info] of clients.entries()) {
-    if (info.role === "admin" && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(data));
-    }
-  }
-}
+/* ---------------- SERVER ---------------- */
 
 wss.on("connection", (ws, req) => {
   const ip =
     req.headers["x-forwarded-for"]?.split(",")[0] ||
     req.socket.remoteAddress;
+
+  console.log("New connection from", ip);
 
   ws.on("message", (raw) => {
     let data;
@@ -45,19 +40,25 @@ wss.on("connection", (ws, req) => {
 
     /* ---------- JOIN ---------- */
     if (data.type === "join") {
+      ws.name = data.name;
+      ws.role = data.role;
+      ws.ip = ip;
+
       clients.set(ws, {
-        name: data.name,
-        role: data.role,
-        ip,
+        name: ws.name,
+        role: ws.role,
+        ip: ws.ip,
       });
 
-      // Only CLIENT joins are logged
-      if (data.role === "client") {
-        broadcastToAdmins({
-          type: "system",
-          message: `${data.name} joined from ${ip}`,
-        });
-      }
+      // Notify everyone (admin listens to this)
+      broadcast({
+        type: "system",
+        event: "join",
+        name: ws.name,
+        ip: ws.ip,
+        message: `${ws.name} joined`,
+      });
+
       return;
     }
 
@@ -68,22 +69,49 @@ wss.on("connection", (ws, req) => {
         from: data.from,
         message: data.message,
       });
+      return;
+    }
+
+    /* ---------- KICK ---------- */
+    if (data.type === "kick" && data.role === "admin") {
+      for (const [client, info] of clients.entries()) {
+        if (info.name === data.target) {
+          client.send(
+            JSON.stringify({
+              type: "system",
+              message: "You were kicked by admin",
+            })
+          );
+          client.close();
+          clients.delete(client);
+
+          broadcast({
+            type: "system",
+            event: "leave",
+            name: info.name,
+            message: `${info.name} was kicked`,
+          });
+        }
+      }
+      return;
     }
   });
 
+  /* ---------- DISCONNECT ---------- */
   ws.on("close", () => {
-    const info = clients.get(ws);
-    if (!info) return;
+    if (ws.name) {
+      clients.delete(ws);
 
-    clients.delete(ws);
-
-    if (info.role === "client") {
-      broadcastToAdmins({
+      broadcast({
         type: "system",
-        message: `${info.name} left`,
+        event: "leave",
+        name: ws.name,
+        message: `${ws.name} left`,
       });
     }
   });
 });
 
-console.log("WebSocket server running");
+/* ---------------- START ---------------- */
+
+console.log(`Ghostline WebSocket server running on port ${PORT}`);
