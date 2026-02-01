@@ -121,22 +121,16 @@ wss.on("connection", (ws, req) => {
 
   /* ---------- DISCONNECT ---------- */
   ws.on("close", () => {
-    if (ws.name) {
-      clients.delete(ws);
-
-      // Broadcast join ONLY for clients (admin is silent)
-if (ws.role === "client") {
-  broadcast({
-    type: "system",
-    event: "join",
-    name: ws.name,
-    ip: ws.ip,
-    message: `${ws.name} joined`,
-  });
-}
-    }
-  });
+  if (ws.role === "client" && ws.name) {
+    broadcast({
+      type: "system",
+      event: "leave",
+      name: ws.name,
+      message: `${ws.name} left`,
+    });
+  }
 });
+
 
 /* ---------------- START ---------------- */
 
