@@ -50,7 +50,7 @@ wss.on("connection", (ws, req) => {
     ip: ws.ip,
   });
 
-  // 🔥 If admin joins, send full users list
+  // 🔥 Send full user list ONLY to admin
   if (ws.role === "admin") {
     const users = [];
     for (const info of clients.values()) {
@@ -70,7 +70,7 @@ wss.on("connection", (ws, req) => {
     );
   }
 
-  // Notify everyone
+  // Broadcast join event
   broadcast({
     type: "system",
     event: "join",
@@ -81,6 +81,7 @@ wss.on("connection", (ws, req) => {
 
   return;
 }
+
 
 
     /* ---------- CHAT ---------- */
