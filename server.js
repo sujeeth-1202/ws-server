@@ -9,6 +9,22 @@ const wss = new WebSocket.Server({ port: PORT });
 */
 const clients = new Map();
 
+function sendLogToAdmins(text) {
+  wss.clients.forEach((client) => {
+    if (
+      client.readyState === WebSocket.OPEN &&
+      client.role === "admin"
+    ) {
+      client.send(
+        JSON.stringify({
+          type: "log",
+          message: text,
+        })
+      );
+    }
+  });
+}
+
 function sendUsersToAdmins() {
   const users = [];
 
@@ -109,16 +125,19 @@ wss.on("connection", (ws, req) => {
 
       // ✅ Broadcast join ONLY if a CLIENT joined
       if (ws.role === "client") {
-  broadcastSystemForClients({
-    type: "system",
-    event: "join",
-    name: ws.name,
-    message: `${ws.name} joined`,
-  });
+        broadcastSystemForClients({
+          type: "system",
+          event: "join",
+          name: ws.name,
+          message: `${ws.name} joined`,
+        });
 
-  // 🔥 NEW
-  sendUsersToAdmins();
-}
+        // 🔥 ADMIN LOG
+        sendLogToAdmins(`${ws.name} joined (${ws.ip})`);
+
+        sendUsersToAdmins();
+      }
+
 
 
       return;
@@ -154,7 +173,9 @@ wss.on("connection", (ws, req) => {
               message: `${info.name} was kicked`,
             });
 
-            // 🔥 NEW
+            // 🔥 ADMIN LOG
+            sendLogToAdmins(`${info.name} was kicked by admin`);
+
             sendUsersToAdmins();
         }
       }
@@ -165,17 +186,21 @@ wss.on("connection", (ws, req) => {
   /* ---------- DISCONNECT ---------- */
   ws.on("close", () => {
     if (ws.role === "client" && ws.name) {
-      clients.delete(ws);
-      broadcastSystemForClients({
-        type: "system",
-        event: "leave",
-        name: ws.name,
-        message: `${ws.name} left`,
-      });
+        clients.delete(ws);
 
-      // 🔥 NEW
-      sendUsersToAdmins();
-    }
+        broadcastSystemForClients({
+          type: "system",
+          event: "leave",
+          name: ws.name,
+          message: `${ws.name} left`,
+        });
+
+        // 🔥 ADMIN LOG
+        sendLogToAdmins(`${ws.name} left`);
+
+        sendUsersToAdmins();
+      }
+
   });
 });
 
