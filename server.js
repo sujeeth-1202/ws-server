@@ -1,13 +1,27 @@
+// server.js
+const http = require("http");
 const WebSocket = require("ws");
 
 const PORT = process.env.PORT || 8080;
-const wss = new WebSocket.Server({ port: PORT });
+
+/* ---------------- HTTP SERVER ---------------- */
+
+const server = http.createServer((req, res) => {
+  res.writeHead(426); // Upgrade Required
+  res.end("WebSocket server");
+});
+
+/* ---------------- WEBSOCKET SERVER ---------------- */
+
+const wss = new WebSocket.Server({ server });
 
 /*
   clients map:
   ws -> { name, role, ip }
 */
 const clients = new Map();
+
+/* ---------------- ADMIN HELPERS ---------------- */
 
 function sendLogToAdmins(text) {
   wss.clients.forEach((client) => {
@@ -52,8 +66,7 @@ function sendUsersToAdmins() {
   });
 }
 
-
-/* ---------------- HELPERS ---------------- */
+/* ---------------- BROADCAST HELPERS ---------------- */
 
 function broadcast(data) {
   const msg = JSON.stringify(data);
@@ -76,7 +89,7 @@ function broadcastSystemForClients(data) {
   });
 }
 
-/* ---------------- SERVER ---------------- */
+/* ---------------- CONNECTION ---------------- */
 
 wss.on("connection", (ws, req) => {
   const ip =
@@ -103,43 +116,22 @@ wss.on("connection", (ws, req) => {
         ip: ws.ip,
       });
 
-      // ✅ Send existing users list ONLY to admin
+      // 🔇 Silent admin join
       if (ws.role === "admin") {
-        const users = [];
-        for (const info of clients.values()) {
-          if (info.role === "client") {
-            users.push({
-              name: info.name,
-              ip: info.ip,
-            });
-          }
-        }
-
-        ws.send(
-          JSON.stringify({
-            type: "users",
-            users,
-          })
-        );
-      }
-
-      // ✅ Broadcast join ONLY if a CLIENT joined
-      if (ws.role === "client") {
-        broadcastSystemForClients({
-          type: "system",
-          event: "join",
-          name: ws.name,
-          message: `${ws.name} joined`,
-        });
-
-        // 🔥 ADMIN LOG
-        sendLogToAdmins(`${ws.name} joined (${ws.ip})`);
-
         sendUsersToAdmins();
+        return;
       }
 
+      // ✅ Client joined
+      broadcastSystemForClients({
+        type: "system",
+        event: "join",
+        name: ws.name,
+        message: `${ws.name} joined`,
+      });
 
-
+      sendLogToAdmins(`${ws.name} joined (${ws.ip})`);
+      sendUsersToAdmins();
       return;
     }
 
@@ -166,17 +158,16 @@ wss.on("connection", (ws, req) => {
 
           client.close();
           clients.delete(client);
-            broadcastSystemForClients({
-              type: "system",
-              event: "leave",
-              name: info.name,
-              message: `${info.name} was kicked`,
-            });
 
-            // 🔥 ADMIN LOG
-            sendLogToAdmins(`${info.name} was kicked by admin`);
+          broadcastSystemForClients({
+            type: "system",
+            event: "leave",
+            name: info.name,
+            message: `${info.name} was kicked`,
+          });
 
-            sendUsersToAdmins();
+          sendLogToAdmins(`${info.name} was kicked by admin`);
+          sendUsersToAdmins();
         }
       }
       return;
@@ -186,24 +177,23 @@ wss.on("connection", (ws, req) => {
   /* ---------- DISCONNECT ---------- */
   ws.on("close", () => {
     if (ws.role === "client" && ws.name) {
-        clients.delete(ws);
+      clients.delete(ws);
 
-        broadcastSystemForClients({
-          type: "system",
-          event: "leave",
-          name: ws.name,
-          message: `${ws.name} left`,
-        });
+      broadcastSystemForClients({
+        type: "system",
+        event: "leave",
+        name: ws.name,
+        message: `${ws.name} left`,
+      });
 
-        // 🔥 ADMIN LOG
-        sendLogToAdmins(`${ws.name} left`);
-
-        sendUsersToAdmins();
-      }
-
+      sendLogToAdmins(`${ws.name} left`);
+      sendUsersToAdmins();
+    }
   });
 });
 
 /* ---------------- START ---------------- */
 
-console.log("Ghostline WebSocket server running on port " + PORT);
+server.listen(PORT, () => {
+  console.log(`Ghostline WebSocket server running on port ${PORT}`);
+});
