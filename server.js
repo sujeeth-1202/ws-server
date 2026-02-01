@@ -40,27 +40,48 @@ wss.on("connection", (ws, req) => {
 
     /* ---------- JOIN ---------- */
     if (data.type === "join") {
-      ws.name = data.name;
-      ws.role = data.role;
-      ws.ip = ip;
+  ws.name = data.name;
+  ws.role = data.role;
+  ws.ip = ip;
 
-      clients.set(ws, {
-        name: ws.name,
-        role: ws.role,
-        ip: ws.ip,
-      });
+  clients.set(ws, {
+    name: ws.name,
+    role: ws.role,
+    ip: ws.ip,
+  });
 
-      // Notify everyone (admin listens to this)
-      broadcast({
-        type: "system",
-        event: "join",
-        name: ws.name,
-        ip: ws.ip,
-        message: `${ws.name} joined`,
-      });
-
-      return;
+  // 🔥 If admin joins, send full users list
+  if (ws.role === "admin") {
+    const users = [];
+    for (const info of clients.values()) {
+      if (info.role === "client") {
+        users.push({
+          name: info.name,
+          ip: info.ip,
+        });
+      }
     }
+
+    ws.send(
+      JSON.stringify({
+        type: "users",
+        users,
+      })
+    );
+  }
+
+  // Notify everyone
+  broadcast({
+    type: "system",
+    event: "join",
+    name: ws.name,
+    ip: ws.ip,
+    message: `${ws.name} joined`,
+  });
+
+  return;
+}
+
 
     /* ---------- CHAT ---------- */
     if (data.type === "chat") {
