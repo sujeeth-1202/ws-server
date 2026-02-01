@@ -9,6 +9,34 @@ const wss = new WebSocket.Server({ port: PORT });
 */
 const clients = new Map();
 
+function sendUsersToAdmins() {
+  const users = [];
+
+  for (const info of clients.values()) {
+    if (info.role === "client") {
+      users.push({
+        name: info.name,
+        ip: info.ip,
+      });
+    }
+  }
+
+  wss.clients.forEach((client) => {
+    if (
+      client.readyState === WebSocket.OPEN &&
+      client.role === "admin"
+    ) {
+      client.send(
+        JSON.stringify({
+          type: "users",
+          users,
+        })
+      );
+    }
+  });
+}
+
+
 /* ---------------- HELPERS ---------------- */
 
 function broadcast(data) {
@@ -81,13 +109,17 @@ wss.on("connection", (ws, req) => {
 
       // ✅ Broadcast join ONLY if a CLIENT joined
       if (ws.role === "client") {
-        broadcastSystemForClients({
-          type: "system",
-          event: "join",
-          name: ws.name,
-          message: `${ws.name} joined`,
-        });
-      }
+  broadcastSystemForClients({
+    type: "system",
+    event: "join",
+    name: ws.name,
+    message: `${ws.name} joined`,
+  });
+
+  // 🔥 NEW
+  sendUsersToAdmins();
+}
+
 
       return;
     }
@@ -115,14 +147,15 @@ wss.on("connection", (ws, req) => {
 
           client.close();
           clients.delete(client);
+            broadcastSystemForClients({
+              type: "system",
+              event: "leave",
+              name: info.name,
+              message: `${info.name} was kicked`,
+            });
 
-          // Notify clients only
-          broadcastSystemForClients({
-            type: "system",
-            event: "leave",
-            name: info.name,
-            message: `${info.name} was kicked`,
-          });
+            // 🔥 NEW
+            sendUsersToAdmins();
         }
       }
       return;
@@ -133,13 +166,15 @@ wss.on("connection", (ws, req) => {
   ws.on("close", () => {
     if (ws.role === "client" && ws.name) {
       clients.delete(ws);
-
       broadcastSystemForClients({
         type: "system",
         event: "leave",
         name: ws.name,
         message: `${ws.name} left`,
       });
+
+      // 🔥 NEW
+      sendUsersToAdmins();
     }
   });
 });
